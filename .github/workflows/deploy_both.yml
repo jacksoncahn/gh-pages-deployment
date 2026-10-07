@@ -1,0 +1,67 @@
+name: "Rebuild & Deploy Both (Main & Dev)"
+
+on:
+  workflow_dispatch: # Run manually from the Actions tab
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Development Branch
+        uses: actions/checkout@v4
+        with:
+          path: dev-branch
+
+      - name: Checkout Main Branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-branch
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      # Build Main to the root of our unified folder
+      - name: Build Main (Production) Site
+        run: |
+          cd main-branch
+          npm ci
+          npm run build -- --base=/md-gooey/
+          mkdir -p ../unified-site
+          cp -r dist/* ../unified-site/
+
+      # Build Dev to the /dev subfolder of our unified folder
+      - name: Build Dev Site
+        run: |
+          cd dev-branch
+          npm ci
+          npm run build -- --base=/md-gooey/dev/
+          mkdir -p ../unified-site/dev
+          cp -r dist/* ../unified-site/dev/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload combined artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./unified-site"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

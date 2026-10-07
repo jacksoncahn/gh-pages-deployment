@@ -1,0 +1,71 @@
+name: "Deploy Dev to /dev (Keep Live Root)"
+
+on:
+  push:
+    branches:
+      - "development"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy-dev:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Development Branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install & Build Dev Site
+        run: |
+          npm ci
+          npm run build -- --base=/md-gooey/dev/
+
+      # Safely download the current live site
+      - name: Download existing live site
+        continue-on-error: true 
+        uses: actions/download-pages-artifact@v3
+        with:
+          name: github-pages
+          path: ./live-site-download
+
+      # Extract the root site and swap out/insert the new /dev folder
+      - name: Merge New /dev with Existing Live Root
+        run: |
+          mkdir unified-site
+          
+          if [ -f ./live-site-download/artifact.tar ]; then
+            tar -xf ./live-site-download/artifact.tar -C ./unified-site
+          fi
+          
+          # Delete the old dev subroute folder if it exists, replace with new one
+          rm -rf ./unified-site/dev
+          mkdir -p ./unified-site/dev
+          cp -r dist/* ./unified-site/dev/
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload unified artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./unified-site"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

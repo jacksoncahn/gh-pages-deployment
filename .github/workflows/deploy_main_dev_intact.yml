@@ -1,0 +1,73 @@
+
+name: "Deploy Main (Keep Live /dev)"
+
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy-main:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Main Branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install & Build Main Site
+        run: |
+          npm ci
+          npm run build -- --base=/md-gooey/
+
+      # Safely download whatever is currently serving live on GitHub Pages
+      - name: Download existing live site
+        continue-on-error: true 
+        uses: actions/download-pages-artifact@v3
+        with:
+          name: github-pages
+          path: ./live-site-download
+
+      # Extract the old /dev folder and protect it inside the new deployment
+      - name: Merge New Main with Existing Live /dev
+        run: |
+          mkdir unified-site
+          cp -r dist/* unified-site/
+          
+          if [ -f ./live-site-download/artifact.tar ]; then
+            mkdir extracted-live
+            tar -xf ./live-site-download/artifact.tar -C ./extracted-live
+            if [ -d ./extracted-live/dev ]; then
+              cp -r ./extracted-live/dev ./unified-site/dev
+            fi
+          fi
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+       # Tar-up and upload the root site containing your live dev subdirectory
+      - name: Upload unified artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./unified-site"
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
